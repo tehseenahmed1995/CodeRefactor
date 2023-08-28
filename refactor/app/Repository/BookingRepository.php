@@ -52,6 +52,14 @@ class BookingRepository extends BaseRepository
     }
 
     /**
+     * Following are code changes to improve the readability and performance.
+     * 1. Moved the is check inside the first if condition to avoid repeating the $cuser check.
+     * 2. Used array shorthand [] instead of array().
+     * 3. Used $cuser->is('translator') directly instead of $cuser && $cuser->is('translator').
+     * 4. Combined the pluck and all methods into a single line for the translator case.
+     * 5. Removed redundant array keys and reassignment of values for $noramlJobs.
+     * 6. Used the map method instead of each for modifying $noramlJobs collection.
+     * 7. Simplified the return statement.
      * @param $user_id
      * @return array
      */
@@ -59,17 +67,21 @@ class BookingRepository extends BaseRepository
     {
         $cuser = User::find($user_id);
         $usertype = '';
-        $emergencyJobs = array();
-        $noramlJobs = array();
-        if ($cuser && $cuser->is('customer')) {
-            $jobs = $cuser->jobs()->with('user.userMeta', 'user.average', 'translatorJobRel.user.average', 'language', 'feedback')->whereIn('status', ['pending', 'assigned', 'started'])->orderBy('due', 'asc')->get();
-            $usertype = 'customer';
-        } elseif ($cuser && $cuser->is('translator')) {
-            $jobs = Job::getTranslatorJobs($cuser->id, 'new');
-            $jobs = $jobs->pluck('jobs')->all();
-            $usertype = 'translator';
-        }
-        if ($jobs) {
+        $emergencyJobs = [];
+        $noramlJobs = [];
+
+        if ($cuser) {
+            if ($cuser->is('customer')) {
+                $jobs = $cuser->jobs()->with('user.userMeta', 'user.average', 'translatorJobRel.user.average', 'language', 'feedback')
+                    ->whereIn('status', ['pending', 'assigned', 'started'])
+                    ->orderBy('due', 'asc')
+                    ->get();
+                $usertype = 'customer';
+            } elseif ($cuser->is('translator')) {
+                $jobs = Job::getTranslatorJobs($cuser->id, 'new')->pluck('jobs')->all();
+                $usertype = 'translator';
+            }
+
             foreach ($jobs as $jobitem) {
                 if ($jobitem->immediate == 'yes') {
                     $emergencyJobs[] = $jobitem;
@@ -77,50 +89,80 @@ class BookingRepository extends BaseRepository
                     $noramlJobs[] = $jobitem;
                 }
             }
-            $noramlJobs = collect($noramlJobs)->each(function ($item, $key) use ($user_id) {
+
+            $noramlJobs = collect($noramlJobs)->map(function ($item) use ($user_id) {
                 $item['usercheck'] = Job::checkParticularJob($user_id, $item);
+                return $item;
             })->sortBy('due')->all();
         }
 
         return ['emergencyJobs' => $emergencyJobs, 'noramlJobs' => $noramlJobs, 'cuser' => $cuser, 'usertype' => $usertype];
     }
 
+
     /**
+     * Following are code changes to improve the readability and performance.
+     * 1. Removed unnecessary variables like $emergencyJobs and $noramlJobs when they are not being used.
+     * 2. Used a single return statement for each case to improve readability.
+     * 3. Simplified the logic for assigning the $page variable using the ternary operator.
+     * 4. Added a check to handle cases where the $cuser is not found.
      * @param $user_id
      * @return array
      */
     public function getUsersJobsHistory($user_id, Request $request)
     {
-        $page = $request->get('page');
-        if (isset($page)) {
-            $pagenum = $page;
-        } else {
-            $pagenum = "1";
-        }
+        $page = $request->get('page', 1);
         $cuser = User::find($user_id);
-        $usertype = '';
-        $emergencyJobs = array();
-        $noramlJobs = array();
-        if ($cuser && $cuser->is('customer')) {
-            $jobs = $cuser->jobs()->with('user.userMeta', 'user.average', 'translatorJobRel.user.average', 'language', 'feedback', 'distance')->whereIn('status', ['completed', 'withdrawbefore24', 'withdrawafter24', 'timedout'])->orderBy('due', 'desc')->paginate(15);
-            $usertype = 'customer';
-            return ['emergencyJobs' => $emergencyJobs, 'noramlJobs' => [], 'jobs' => $jobs, 'cuser' => $cuser, 'usertype' => $usertype, 'numpages' => 0, 'pagenum' => 0];
-        } elseif ($cuser && $cuser->is('translator')) {
-            $jobs_ids = Job::getTranslatorJobsHistoric($cuser->id, 'historic', $pagenum);
+
+        if (!$cuser) {
+            return [];
+        }
+
+        if ($cuser->is('customer')) {
+            $jobs = $cuser->jobs()
+                ->with('user.userMeta', 'user.average', 'translatorJobRel.user.average', 'language', 'feedback', 'distance')
+                ->whereIn('status', ['completed', 'withdrawbefore24', 'withdrawafter24', 'timedout'])
+                ->orderBy('due', 'desc')
+                ->paginate(15);
+
+            return [
+                'emergencyJobs' => [],
+                'noramlJobs' => [],
+                'jobs' => $jobs,
+                'cuser' => $cuser,
+                'usertype' => 'customer',
+                'numpages' => 0,
+                'pagenum' => 0,
+            ];
+        } elseif ($cuser->is('translator')) {
+            $jobs_ids = Job::getTranslatorJobsHistoric($cuser->id, 'historic', $page);
             $totaljobs = $jobs_ids->total();
             $numpages = ceil($totaljobs / 15);
 
             $usertype = 'translator';
 
             $jobs = $jobs_ids;
-            $noramlJobs = $jobs_ids;
-//            $jobs['data'] = $noramlJobs;
-//            $jobs['total'] = $totaljobs;
-            return ['emergencyJobs' => $emergencyJobs, 'noramlJobs' => $noramlJobs, 'jobs' => $jobs, 'cuser' => $cuser, 'usertype' => $usertype, 'numpages' => $numpages, 'pagenum' => $pagenum];
+
+            return [
+                'emergencyJobs' => [],
+                'noramlJobs' => $jobs_ids,
+                'jobs' => $jobs,
+                'cuser' => $cuser,
+                'usertype' => $usertype,
+                'numpages' => $numpages,
+                'pagenum' => $page,
+            ];
         }
+
+        return [];
     }
 
+
     /**
+     * * Following are code changes to improve the readability and performance.
+     * 1. removed else case and handle via default condition.
+     * 2. There are too many if-else conditions for data preparation before save those can be handled via FormRequest data Validation and prepare data inside service and then send the prepare data to Store function which only perform save operation (this change I haven't done because of business logic is written and code is not functional so can't modify code based on assumptions but I have given my thought how I'll approach code Refactor).
+     * 3. instead of manually preparing response, we can use API resources and pass data to that API resource and prepare response there.
      * @param $user
      * @param $data
      * @return mixed
@@ -130,7 +172,12 @@ class BookingRepository extends BaseRepository
 
         $immediatetime = 5;
         $consumer_type = $user->userMeta->consumer_type;
-        if ($user->user_type == env('CUSTOMER_ROLE_ID')) {
+        if(!$user->user_type == env('CUSTOMER_ROLE_ID')) {
+            return [
+                'status' => 'fail',
+                'message' => "Translator can not create booking"
+            ];
+        }
             $cuser = $user;
 
             if (!isset($data['from_language_id'])) {
@@ -241,6 +288,7 @@ class BookingRepository extends BaseRepository
                 $data['will_expire_at'] = TeHelper::willExpireAt($due, $data['b_created_at']);
             $data['by_admin'] = isset($data['by_admin']) ? $data['by_admin'] : 'no';
 
+            //This part of code is required only in this function that will save data in Database rest should be moved to service.
             $job = $cuser->jobs()->create($data);
 
             $response['status'] = 'success';
@@ -267,13 +315,6 @@ class BookingRepository extends BaseRepository
             $data['customer_town'] = $cuser->userMeta->city;
             $data['customer_type'] = $cuser->userMeta->customer_type;
 
-            //Event::fire(new JobWasCreated($job, $data, '*'));
-
-//            $this->sendNotificationToSuitableTranslators($job->id, $data, '*');// send Push for New job posting
-        } else {
-            $response['status'] = 'fail';
-            $response['message'] = "Translator can not create booking";
-        }
 
         return $response;
 

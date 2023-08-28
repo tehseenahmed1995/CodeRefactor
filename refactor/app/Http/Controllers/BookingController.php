@@ -6,7 +6,7 @@ use DTApi\Models\Job;
 use DTApi\Http\Requests;
 use DTApi\Models\Distance;
 use Illuminate\Http\Request;
-use DTApi\Repository\BookingRepository;
+use DTApi\Services\Booking\BookingService;
 
 /**
  * Class BookingController
@@ -16,36 +16,26 @@ class BookingController extends Controller
 {
 
     /**
-     * @var BookingRepository
+     * @var BookingService
      */
-    protected $repository;
+    protected $bookingService;
 
     /**
      * BookingController constructor.
-     * @param BookingRepository $bookingRepository
+     * @param BookingService $bookingService
      */
-    public function __construct(BookingRepository $bookingRepository)
+    public function __construct(BookingService $bookingService)
     {
-        $this->repository = $bookingRepository;
+        $this->bookingService = $bookingService;
     }
 
     /**
      * @param Request $request
      * @return mixed
      */
-    public function index(Request $request)
+    public function index(Request $request)         //we can have formRequest validation here in function params and after validation can pass the validated data to out service
     {
-        if($user_id = $request->get('user_id')) {
-
-            $response = $this->repository->getUsersJobs($user_id);
-
-        }
-        elseif($request->__authenticatedUser->user_type == env('ADMIN_ROLE_ID') || $request->__authenticatedUser->user_type == env('SUPERADMIN_ROLE_ID'))
-        {
-            $response = $this->repository->getAll($request);
-        }
-
-        return response($response);
+        return response($this->bookingService->index($request));
     }
 
     /**
@@ -54,23 +44,16 @@ class BookingController extends Controller
      */
     public function show($id)
     {
-        $job = $this->repository->with('translatorJobRel.user')->find($id);
-
-        return response($job);
+        return response($this->bookingService->index($id));
     }
 
     /**
-     * @param Request $request
+     * @param BookingStoreRequest $bookingStoreRequest
      * @return mixed
      */
-    public function store(Request $request)
+    public function store(BookingStoreRequest $bookingStoreRequest)
     {
-        $data = $request->all();
-
-        $response = $this->repository->store($request->__authenticatedUser, $data);
-
-        return response($response);
-
+        return response($this->bookingService->store(bookingStoreRequest->__authenticatedUser, $bookingStoreRequest->validated()));
     }
 
     /**
